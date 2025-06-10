@@ -13,104 +13,108 @@ struct PortsApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     
     var body: some Scene {
-        MenuBarExtra("Ports", systemImage: "network") {
-            PortsPopoverView()
-                .environmentObject(portMonitor)
+        Settings {
+            EmptyView()
         }
-        .menuBarExtraStyle(.window)
     }
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
-    private var contextMenu: NSMenu!
+    private var popover: NSPopover?
+    private var portMonitor = PortMonitor()
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Set activation policy for menu bar app
         NSApp.setActivationPolicy(.accessory)
         
-        // Set up context menu after a delay to ensure MenuBarExtra is created
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            self.setupContextMenu()
+        // Create status item
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        
+        if let button = statusItem?.button {
+            button.image = NSImage(systemSymbolName: "network", accessibilityDescription: "Ports")
+            button.action = #selector(statusItemClicked(_:))
+            button.target = self
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
+        
+        // Create popover
+        setupPopover()
     }
     
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        // Only handle reopen if no windows are visible
-        if !flag {
-            // Find and show the MenuBarExtra window
-            for window in NSApp.windows {
-                if window.className.contains("MenuBarExtra") {
-                    window.makeKeyAndOrderFront(nil)
-                    return true
-                }
-            }
-        }
+        // Don't automatically show popover on reopen - let user click the menu bar item
         return true
     }
     
-    private func setupContextMenu() {
-        // Create context menu
-        contextMenu = NSMenu()
+    private func setupPopover() {
+        popover = NSPopover()
+        popover?.contentSize = NSSize(width: 400, height: 350)
+        popover?.behavior = .transient
+        popover?.animates = false
+        popover?.contentViewController = NSHostingController(
+            rootView: PortsPopoverView()
+                .environmentObject(portMonitor)
+        )
+    }
+    
+    @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
+        guard let event = NSApp.currentEvent else { return }
+        
+        if event.type == .rightMouseUp {
+            // Right click - show context menu
+            showContextMenu()
+        } else {
+            // Left click - toggle popover
+            togglePopover()
+        }
+    }
+    
+    private func togglePopover() {
+        guard let popover = popover, let button = statusItem?.button else { return }
+        
+        if popover.isShown {
+            popover.performClose(nil)
+        } else {
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: NSRectEdge.minY)
+        }
+    }
+    
+    private func showPopover() {
+        guard let popover = popover, let button = statusItem?.button else { return }
+        
+        if !popover.isShown {
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: NSRectEdge.minY)
+        }
+    }
+    
+    private func showContextMenu() {
+        guard let button = statusItem?.button else { return }
+        
+        let menu = NSMenu()
         
         let aboutItem = NSMenuItem(title: "About Ports", action: #selector(showAbout), keyEquivalent: "")
         aboutItem.target = self
-        contextMenu.addItem(aboutItem)
+        menu.addItem(aboutItem)
         
-        contextMenu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem.separator())
         
         let quitItem = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
-        contextMenu.addItem(quitItem)
+        menu.addItem(quitItem)
         
-        // Try to find the MenuBarExtra button and add right-click handling
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            self.findAndConfigureMenuBarButton()
-        }
-    }
-    
-    private func findAndConfigureMenuBarButton() {
-        // Look through all windows to find the MenuBarExtra button
-        for window in NSApp.windows {
-            if let button = self.findButtonInView(window.contentView) {
-                // Add a right-click gesture recognizer without interfering with the original action
-                let rightClickGesture = NSClickGestureRecognizer(target: self, action: #selector(handleRightClick(_:)))
-                rightClickGesture.buttonMask = 0x2 // Right mouse button
-                button.addGestureRecognizer(rightClickGesture)
-                break
-            }
-        }
-    }
-    
-    private func findButtonInView(_ view: NSView?) -> NSButton? {
-        guard let view = view else { return nil }
-        
-        if let button = view as? NSButton {
-            return button
-        }
-        
-        for subview in view.subviews {
-            if let button = findButtonInView(subview) {
-                return button
-            }
-        }
-        
-        return nil
-    }
-    
-    @objc private func handleRightClick(_ gestureRecognizer: NSClickGestureRecognizer) {
-        if let button = gestureRecognizer.view as? NSButton {
-            contextMenu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height), in: button)
-        }
+        statusItem?.menu = menu
+        button.performClick(nil)
+        statusItem?.menu = nil
     }
     
     @objc private func showAbout() {
-        let alert = NSAlert()
-        alert.messageText = "Ports"
-        alert.informativeText = "A simple menu bar app for monitoring localhost ports.\n\nVersion 1.0"
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
+        NSApp.orderFrontStandardAboutPanel([
+            NSApplication.AboutPanelOptionKey.applicationName: "Ports",
+            NSApplication.AboutPanelOptionKey.applicationVersion: "1.0",
+            NSApplication.AboutPanelOptionKey.version: "1.0",
+            NSApplication.AboutPanelOptionKey.credits: NSAttributedString(string: "A simple menu bar app for monitoring localhost ports.")
+        ])
     }
     
     @objc private func quit() {
