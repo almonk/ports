@@ -204,9 +204,9 @@ struct PortsPopoverView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .frame(minWidth: 360, minHeight: 300)
+        .frame(minWidth: 300, minHeight: 300)
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: shouldShowToolbar)
-        .onChange(of: searchText) { _ in
+        .onChange(of: searchText) { _,_ in
             // Clear selection when searching
             if !searchText.isEmpty {
                 selectedPorts.removeAll()
@@ -346,7 +346,6 @@ struct PortRowView: View {
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
-                .help("Open http://localhost:\(port.port) in browser")
                 
                 // Kill process button
                 Button(action: {
@@ -357,7 +356,6 @@ struct PortRowView: View {
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
-                .help("Kill process \(port.process) (PID: \(port.pid))")
             }
         }
         .padding(.horizontal, 12)

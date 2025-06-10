@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import ServiceManagement
 
 @main
 struct PortsApp: App {
@@ -19,14 +20,47 @@ struct PortsApp: App {
     }
 }
 
+// LaunchAtLogin helper
+class LaunchAtLogin {
+    static var isEnabled: Bool {
+        get {
+            if #available(macOS 13.0, *) {
+                return SMAppService.mainApp.status == .enabled
+            } else {
+                // Fallback for older macOS versions
+                let bundleIdentifier = Bundle.main.bundleIdentifier!
+                let jobs = SMCopyAllJobDictionaries(kSMDomainUserLaunchd)?.takeRetainedValue() as? [[String: AnyObject]]
+                return jobs?.contains { $0["Label"] as? String == bundleIdentifier } ?? false
+            }
+        }
+        set {
+            if #available(macOS 13.0, *) {
+                do {
+                    if newValue {
+                        try SMAppService.mainApp.register()
+                    } else {
+                        try SMAppService.mainApp.unregister()
+                    }
+                } catch {
+                    print("Failed to \(newValue ? "register" : "unregister") launch at login: \(error)")
+                }
+            } else {
+                // Fallback for older macOS versions
+                let bundleIdentifier = Bundle.main.bundleIdentifier!
+                SMLoginItemSetEnabled(bundleIdentifier as CFString, newValue)
+            }
+        }
+    }
+}
+
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var portMonitor = PortMonitor()
     
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Set activation policy for menu bar app
-        NSApp.setActivationPolicy(.accessory)
+        // Set activation policy for menu bar app (no dock icon)
+        NSApp.setActivationPolicy(.prohibited)
         
         // Create status item
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -36,6 +70,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             button.action = #selector(statusItemClicked(_:))
             button.target = self
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            print("Status item button configured")
+        } else {
+            print("Failed to get status item button")
         }
         
         // Create popover
@@ -43,48 +80,57 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        // Don't automatically show popover on reopen - let user click the menu bar item
+        // With .prohibited policy, this won't be called, but keeping for completeness
+        togglePopover()
         return true
     }
     
     private func setupPopover() {
         popover = NSPopover()
-        popover?.contentSize = NSSize(width: 400, height: 350)
+        popover?.contentSize = NSSize(width: 360, height: 370)
         popover?.behavior = .transient
         popover?.animates = false
-        popover?.contentViewController = NSHostingController(
+        
+        // Create hosting controller
+        let hostingController = NSHostingController(
             rootView: PortsPopoverView()
                 .environmentObject(portMonitor)
         )
+        
+        popover?.contentViewController = hostingController
+        
+        print("Popover setup completed")
+        
+        // Make resizable after showing
+        NotificationCenter.default.addObserver(
+            forName: NSPopover.didShowNotification,
+            object: popover,
+            queue: .main
+        ) { [weak self] _ in
+            self?.makePopoverResizable()
+        }
+    }
+    
+    private func makePopoverResizable() {
+        guard let window = popover?.contentViewController?.view.window else { return }
+        
+        // Make the window resizable
+        window.styleMask.insert(.resizable)
+        
+        // Set minimum and maximum size constraints
+        window.minSize = NSSize(width: 360, height: 300)
+        window.maxSize = NSSize(width: 800, height: 800)
     }
     
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
-        guard let event = NSApp.currentEvent else { return }
+        let event = NSApp.currentEvent!
         
         if event.type == .rightMouseUp {
-            // Right click - show context menu
+            print("Right click detected - showing menu")
             showContextMenu()
         } else {
-            // Left click - toggle popover
+            print("Left click detected - showing popover")
             togglePopover()
-        }
-    }
-    
-    private func togglePopover() {
-        guard let popover = popover, let button = statusItem?.button else { return }
-        
-        if popover.isShown {
-            popover.performClose(nil)
-        } else {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: NSRectEdge.minY)
-        }
-    }
-    
-    private func showPopover() {
-        guard let popover = popover, let button = statusItem?.button else { return }
-        
-        if !popover.isShown {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: NSRectEdge.minY)
         }
     }
     
@@ -92,6 +138,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem?.button else { return }
         
         let menu = NSMenu()
+        
+        let launchAtLoginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+        launchAtLoginItem.target = self
+        launchAtLoginItem.state = LaunchAtLogin.isEnabled ? .on : .off
+        menu.addItem(launchAtLoginItem)
+        
+        menu.addItem(NSMenuItem.separator())
         
         let aboutItem = NSMenuItem(title: "About Ports", action: #selector(showAbout), keyEquivalent: "")
         aboutItem.target = self
@@ -103,9 +156,47 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         quitItem.target = self
         menu.addItem(quitItem)
         
-        statusItem?.menu = menu
-        button.performClick(nil)
-        statusItem?.menu = nil
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height), in: button)
+    }
+    
+    private func togglePopover() {
+        print("togglePopover called")
+        guard let popover = popover, let button = statusItem?.button else { 
+            print("Popover or button is nil")
+            return 
+        }
+        
+        print("Popover is shown: \(popover.isShown)")
+        
+        if popover.isShown {
+            print("Closing popover")
+            popover.performClose(nil)
+        } else {
+            print("Showing popover")
+            // Use simple positioning first to debug
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: NSRectEdge.minY)
+        }
+    }
+    
+    private func showPopover() {
+        guard let popover = popover, let button = statusItem?.button else { return }
+        
+        if !popover.isShown {
+            // Position popover anchored to top center of the button
+            let buttonRect = button.bounds
+            let anchorRect = NSRect(
+                x: buttonRect.midX - 1, // Center horizontally (small width for precise positioning)
+                y: buttonRect.maxY,     // Top of the button
+                width: 2,
+                height: 1
+            )
+            popover.show(relativeTo: anchorRect, of: button, preferredEdge: NSRectEdge.minY)
+        }
+    }
+    
+    
+    @objc private func toggleLaunchAtLogin() {
+        LaunchAtLogin.isEnabled.toggle()
     }
     
     @objc private func showAbout() {
