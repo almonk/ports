@@ -112,14 +112,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func makePopoverResizable() {
-        guard let window = popover?.contentViewController?.view.window else { return }
+        // Try multiple times to get the window reference as it might not be available immediately
+        var attempts = 0
+        let maxAttempts = 10
         
-        // Make the window resizable
-        window.styleMask.insert(.resizable)
+        func tryMakeResizable() {
+            guard let window = popover?.contentViewController?.view.window else {
+                attempts += 1
+                if attempts < maxAttempts {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        tryMakeResizable()
+                    }
+                } else {
+                    print("Failed to get popover window after \(maxAttempts) attempts")
+                }
+                return
+            }
+            
+            print("Making popover resizable")
+            // Make the window resizable
+            window.styleMask.insert(.resizable)
+            
+            // Set minimum and maximum size constraints
+            window.minSize = NSSize(width: 300, height: 250)
+            window.maxSize = NSSize(width: 1000, height: 1000)
+            
+            print("Popover made resizable with constraints")
+        }
         
-        // Set minimum and maximum size constraints
-        window.minSize = NSSize(width: 360, height: 300)
-        window.maxSize = NSSize(width: 800, height: 800)
+        tryMakeResizable()
     }
     
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
@@ -200,11 +221,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     @objc private func showAbout() {
+        // Create attributed string for credits with clickable link
+        let creditsText = NSMutableAttributedString(string: "A simple menu bar app for monitoring localhost ports.\n\nAn app by @almonk")
+        
+        // Add link to @almonk
+        let linkRange = (creditsText.string as NSString).range(of: "@almonk")
+        if linkRange.location != NSNotFound {
+            creditsText.addAttribute(.link, value: "https://alasdairmonk.com", range: linkRange)
+            creditsText.addAttribute(.foregroundColor, value: NSColor.systemBlue, range: linkRange)
+            creditsText.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: linkRange)
+        }
+        
+        // Set font for better readability
+        creditsText.addAttribute(.font, value: NSFont.systemFont(ofSize: 11), range: NSRange(location: 0, length: creditsText.length))
+        
         NSApp.orderFrontStandardAboutPanel([
             NSApplication.AboutPanelOptionKey.applicationName: "Ports",
             NSApplication.AboutPanelOptionKey.applicationVersion: "1.0",
             NSApplication.AboutPanelOptionKey.version: "1.0",
-            NSApplication.AboutPanelOptionKey.credits: NSAttributedString(string: "A simple menu bar app for monitoring localhost ports.")
+            NSApplication.AboutPanelOptionKey.credits: creditsText
         ])
     }
     

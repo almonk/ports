@@ -12,6 +12,10 @@ struct PortsPopoverView: View {
     @State private var searchText = ""
     @FocusState private var isSearchFocused: Bool
     @State private var selectedPorts: Set<String> = []
+    @State private var isGroupedView = UserDefaults.standard.bool(forKey: "PortsGroupedViewMode")
+    @State private var wasGroupedBeforeSearch = false
+    
+    private static let groupedViewModeKey = "PortsGroupedViewMode"
     
     private var selectedPortInfos: [PortInfo] {
         return portMonitor.ports.filter { selectedPorts.contains($0.id) }
@@ -38,6 +42,32 @@ struct PortsPopoverView: View {
                 return port.process.localizedCaseInsensitiveContains(searchText) ||
                        port.port.contains(searchText)
             }
+        }
+    }
+    
+    private var groupedPorts: [(String, [PortInfo])] {
+        let grouped = Dictionary(grouping: filteredPorts) { $0.process }
+        return grouped.sorted { $0.key < $1.key }.map { ($0.key, $0.value.sorted { Int($0.port) ?? 0 < Int($1.port) ?? 0 }) }
+    }
+    
+    private var singleProcessGroups: [PortInfo] {
+        return groupedPorts.filter { $0.1.count == 1 }.flatMap { $0.1 }.sorted { Int($0.port) ?? 0 < Int($1.port) ?? 0 }
+    }
+    
+    private var multiProcessGroups: [(String, [PortInfo])] {
+        return groupedPorts.filter { $0.1.count > 1 }
+    }
+    
+    private var effectiveIsGroupedView: Bool {
+        // Force flat view when searching
+        return !searchText.isEmpty ? false : isGroupedView
+    }
+    
+    private var animationValue: [String] {
+        if effectiveIsGroupedView {
+            return singleProcessGroups.map(\.id) + multiProcessGroups.flatMap { $0.1.map(\.id) }
+        } else {
+            return filteredPorts.map(\.id)
         }
     }
     
@@ -139,28 +169,152 @@ struct PortsPopoverView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(filteredPorts) { port in
-                            VStack(spacing: 0) {
-                                PortRowView(
-                                    port: port, 
-                                    portMonitor: portMonitor,
-                                    isSelected: selectedPorts.contains(port.id),
-                                    onSelectionToggle: { toggleSelection(for: port.id) }
-                                )
-                                .transition(.asymmetric(
-                                    insertion: .scale(scale: 0.9).combined(with: .opacity).combined(with: .move(edge: .top)),
-                                    removal: .scale(scale: 0.9).combined(with: .opacity).combined(with: .move(edge: .bottom))
-                                ))
+                        if effectiveIsGroupedView {
+                            // Grouped view with mixed layout
+                            
+                            // Single-process groups at top (flat style)
+                            ForEach(Array(singleProcessGroups.enumerated()), id: \.element.id) { index, port in
+                                VStack(spacing: 0) {
+                                    PortRowView(
+                                        port: port, 
+                                        portMonitor: portMonitor,
+                                        isSelected: selectedPorts.contains(port.id),
+                                        onSelectionToggle: { toggleSelection(for: port.id) },
+                                        isGroupedView: isGroupedView,
+                                        onViewToggle: { toggleViewMode() }
+                                    )
+                                    .transition(.asymmetric(
+                                        insertion: .scale(scale: 0.9).combined(with: .opacity).combined(with: .move(edge: .top)),
+                                        removal: .scale(scale: 0.9).combined(with: .opacity).combined(with: .move(edge: .leading))
+                                    ))
+                                    
+                                    if index < singleProcessGroups.count - 1 {
+                                        Divider()
+                                            .padding(.leading, 44) // Align with content after icon
+                                    }
+                                }
+                            }
+                            
+                            // Separator between single and multi-process groups
+                            if !singleProcessGroups.isEmpty && !multiProcessGroups.isEmpty {
+                                Rectangle()
+                                    .fill(Color.clear)
+                                    .frame(height: 16)
+                            }
+                            
+                            // Multi-process groups with headers
+                            ForEach(Array(multiProcessGroups.enumerated()), id: \.offset) { groupIndex, group in
+                                let (processName, ports) = group
                                 
-                                if port.id != filteredPorts.last?.id {
-                                    Divider()
-                                        .padding(.leading, 44) // Align with content after icon
+                                // Section header
+                                VStack(spacing: 0) {
+                                    HStack(spacing: 12) {
+                                        // App icon aligned with row icons
+                                        if let appIcon = ports.first?.appIcon {
+                                            Image(nsImage: appIcon)
+                                                .resizable()
+                                                .aspectRatio(contentMode: .fit)
+                                                .frame(width: 16, height: 16)
+                                                .cornerRadius(3)
+                                        } else {
+                                            let terminalIcon = NSWorkspace.shared.icon(forFile: "/System/Applications/Utilities/Terminal.app")
+                                            Image(nsImage: terminalIcon)
+                                                .resizable()
+                                                .aspectRatio(contentMode: .fit)
+                                                .frame(width: 16, height: 16)
+                                                .cornerRadius(3)
+                                        }
+                                        
+                                        Text(processName)
+                                            .font(.subheadline)
+                                            .fontWeight(.medium)
+                                            .foregroundColor(.primary)
+                                        
+                                        Spacer()
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .frame(maxWidth: .infinity)
+                                    .contextMenu {
+                                        Button("Kill all \(processName) processes") {
+                                            killProcessGroup(processName: processName, ports: ports)
+                                        }
+                                    }
+                                    
+                                    // Bottom separator
+                                    Rectangle()
+                                        .fill(.separator.opacity(0.3))
+                                        .frame(height: 0.5)
+                                }
+                                
+                                // Ports for this process
+                                ForEach(Array(ports.enumerated()), id: \.element.id) { portIndex, port in
+                                    VStack(spacing: 0) {
+                                        PortRowView(
+                                            port: port, 
+                                            portMonitor: portMonitor,
+                                            isSelected: selectedPorts.contains(port.id),
+                                            onSelectionToggle: { toggleSelection(for: port.id) },
+                                            isGroupedView: isGroupedView,
+                                            onViewToggle: { toggleViewMode() }
+                                        )
+                                        .transition(.asymmetric(
+                                            insertion: .scale(scale: 0.9).combined(with: .opacity).combined(with: .move(edge: .top)),
+                                            removal: .scale(scale: 0.9).combined(with: .opacity).combined(with: .move(edge: .leading))
+                                        ))
+                                        
+                                        // Add divider between ports within the same group
+                                        if portIndex < ports.count - 1 {
+                                            Divider()
+                                                .padding(.leading, 44) // Align with content after icon
+                                        }
+                                    }
+                                }
+                                
+                                // Add spacing between groups
+                                if groupIndex < multiProcessGroups.count - 1 {
+                                    Rectangle()
+                                        .fill(Color.clear)
+                                        .frame(height: 8)
+                                }
+                            }
+                        } else {
+                            // Flat view (original)
+                            ForEach(Array(filteredPorts.enumerated()), id: \.element.id) { index, port in
+                                VStack(spacing: 0) {
+                                    PortRowView(
+                                        port: port, 
+                                        portMonitor: portMonitor,
+                                        isSelected: selectedPorts.contains(port.id),
+                                        onSelectionToggle: { toggleSelection(for: port.id) },
+                                        isGroupedView: isGroupedView,
+                                        onViewToggle: { toggleViewMode() }
+                                    )
+                                    .transition(.asymmetric(
+                                        insertion: .scale(scale: 0.9).combined(with: .opacity).combined(with: .move(edge: .top)),
+                                        removal: .scale(scale: 0.9).combined(with: .opacity).combined(with: .move(edge: .leading))
+                                    ))
+                                    
+                                    if index < filteredPorts.count - 1 {
+                                        Divider()
+                                            .padding(.leading, 44) // Align with content after icon
+                                    }
                                 }
                             }
                         }
                     }
                     .padding(.bottom, 8)
-                    .animation(.spring(response: 0.3, dampingFraction: 0.9), value: filteredPorts.map(\.id))
+                    .animation(.spring(response: 0.3, dampingFraction: 0.9), value: animationValue)
+                }
+                .contextMenu {
+                    Button(action: {
+                        toggleViewMode()
+                    }) {
+                        HStack {
+                            Image(systemName: isGroupedView ? "list.bullet" : "rectangle.3.group")
+                            Text(isGroupedView ? "Show Flat View" : "Group by Process")
+                        }
+                    }
                 }
             }
             
@@ -206,10 +360,20 @@ struct PortsPopoverView: View {
         }
         .frame(minWidth: 300, minHeight: 300)
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: shouldShowToolbar)
-        .onChange(of: searchText) { _,_ in
+        .onChange(of: searchText) { oldValue, newValue in
             // Clear selection when searching
-            if !searchText.isEmpty {
+            if !newValue.isEmpty {
                 selectedPorts.removeAll()
+                // Save current view mode and switch to flat view
+                if oldValue.isEmpty && isGroupedView {
+                    wasGroupedBeforeSearch = true
+                }
+            } else {
+                // Restore previous view mode when search is cleared
+                if oldValue != newValue && wasGroupedBeforeSearch {
+                    isGroupedView = true
+                    wasGroupedBeforeSearch = false
+                }
             }
         }
     }
@@ -219,6 +383,11 @@ struct PortsPopoverView: View {
         if let window = NSApp.keyWindow {
             window.close()
         }
+    }
+    
+    private func toggleViewMode() {
+        isGroupedView.toggle()
+        UserDefaults.standard.set(isGroupedView, forKey: Self.groupedViewModeKey)
     }
     
     private func toggleSelection(for portId: String) {
@@ -296,6 +465,40 @@ struct PortsPopoverView: View {
             }
         }
     }
+    
+    private func killProcessGroup(processName: String, ports: [PortInfo]) {
+        let alert = NSAlert()
+        alert.messageText = "Kill All \(processName) Processes"
+        alert.informativeText = "Are you sure you want to kill all \(ports.count) processes for \(processName)?"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Kill All")
+        alert.addButton(withTitle: "Cancel")
+        
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            for port in ports {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/bin/kill")
+                process.arguments = ["-9", port.pid]
+                
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+                } catch {
+                    // Continue with other processes even if one fails
+                    print("Failed to kill process \(port.pid): \(error)")
+                }
+            }
+            
+            // Clear any selected ports from this group and refresh
+            let groupPortIds = Set(ports.map(\.id))
+            selectedPorts.subtract(groupPortIds)
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                portMonitor.refreshPorts(showLoading: false)
+            }
+        }
+    }
 }
 
 struct PortRowView: View {
@@ -303,6 +506,10 @@ struct PortRowView: View {
     let portMonitor: PortMonitor
     let isSelected: Bool
     let onSelectionToggle: () -> Void
+    let isGroupedView: Bool
+    let onViewToggle: () -> Void
+    
+    @State private var isContextMenuOpen = false
     
     var body: some View {
         HStack(spacing: 12) {
@@ -314,10 +521,12 @@ struct PortRowView: View {
                     .frame(width: 20, height: 20)
                     .cornerRadius(4)
             } else {
-                Image(systemName: "app.dashed")
-                    .font(.system(size: 14))
-                    .foregroundColor(.secondary)
+                let terminalIcon = NSWorkspace.shared.icon(forFile: "/System/Applications/Utilities/Terminal.app")
+                Image(nsImage: terminalIcon)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
                     .frame(width: 20, height: 20)
+                    .cornerRadius(4)
             }
             
             // Port number
@@ -360,7 +569,8 @@ struct PortRowView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(isSelected ? Color.accentColor.opacity(0.1) : Color.clear)
+        .background((isSelected || isContextMenuOpen) ? Color.accentColor.opacity(0.1) : Color.white.opacity(0.0001))
+        .scaleEffect(isContextMenuOpen ? 0.98 : 1.0)
         .gesture(
             TapGesture()
                 .modifiers(.command)
@@ -368,6 +578,40 @@ struct PortRowView: View {
                     onSelectionToggle()
                 }
         )
+        .contextMenu {
+            Button("Open in Safari") {
+                openInBrowser(port: port.port)
+            }
+            
+            Button("Kill Process") {
+                killProcess(pid: port.pid)
+            }
+            
+            Divider()
+            
+            Button(action: {
+                onViewToggle()
+            }) {
+                HStack {
+                    Image(systemName: isGroupedView ? "list.bullet" : "rectangle.3.group")
+                    Text(isGroupedView ? "Show Flat View" : "Group by Process")
+                }
+            }
+        }
+        .onLongPressGesture(minimumDuration: 0.01, maximumDistance: 50) {
+            // This triggers on the start of a long press (very short duration)
+            // which includes right-clicks
+            withAnimation(.easeInOut(duration: 0.1)) {
+                isContextMenuOpen = true
+            }
+            
+            // Auto-dismiss after a delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isContextMenuOpen = false
+                }
+            }
+        }
     }
     
     private func openInBrowser(port: String) {

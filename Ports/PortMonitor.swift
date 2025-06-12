@@ -297,8 +297,13 @@ class PortMonitor: ObservableObject {
             }
         }
         
-        // Return a default system icon for unknown processes
-        return NSImage(systemSymbolName: "app.dashed", accessibilityDescription: "Application")
+        // Return Terminal.app icon for unknown processes
+        if let terminalURL = workspace.urlForApplication(withBundleIdentifier: "com.apple.Terminal") {
+            return workspace.icon(forFile: terminalURL.path)
+        }
+        
+        // Fallback to system terminal symbol if Terminal.app not found
+        return NSImage(systemSymbolName: "terminal", accessibilityDescription: "Terminal Application")
     }
     
     private func cleanProcessName(_ processName: String) -> String {
