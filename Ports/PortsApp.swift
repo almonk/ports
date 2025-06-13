@@ -90,6 +90,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         popover?.contentSize = NSSize(width: 360, height: 370)
         popover?.behavior = .transient
         popover?.animates = false
+    
         
         // Create hosting controller
         let hostingController = NSHostingController(
