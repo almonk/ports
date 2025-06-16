@@ -57,10 +57,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var portMonitor = PortMonitor()
+    private var appStartTime: Date?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Set activation policy for menu bar app (no dock icon)
-//        NSApp.setActivationPolicy(.prohibited)
+        // Record app start time
+        appStartTime = Date()
         
         // Create status item
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -88,8 +89,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        // With .prohibited policy, this won't be called, but keeping for completeness
-        togglePopover()
+        // Only toggle popover if app has been running for more than 5 seconds
+        if let startTime = appStartTime, Date().timeIntervalSince(startTime) > 5.0 {
+            togglePopover()
+        }
         return true
     }
     
