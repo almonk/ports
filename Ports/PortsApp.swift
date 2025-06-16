@@ -60,7 +60,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Set activation policy for menu bar app (no dock icon)
-        NSApp.setActivationPolicy(.prohibited)
+//        NSApp.setActivationPolicy(.prohibited)
         
         // Create status item
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
