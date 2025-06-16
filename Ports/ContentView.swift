@@ -416,51 +416,49 @@ struct PortsPopoverView: View {
     }
     
     private var bottomToolbarArea: some View {
-        Group {
+        ZStack(alignment: .bottom) {
             // Bottom toolbar (appears when searching or selecting)
             if shouldShowToolbar {
                 HStack {
                     if !selectedPorts.isEmpty {
                         Text("\(selectedPorts.count) selected port\(selectedPorts.count == 1 ? "" : "s")")
                             .foregroundColor(.secondary)
-                            .font(.caption)
+                            .font(.body)
                     } else {
                         Text("\(filteredPorts.count) matching port\(filteredPorts.count == 1 ? "" : "s")")
                             .foregroundColor(.secondary)
-                            .font(.caption)
+                            .font(.body)
                     }
                     
                     Spacer()
                     
                     if !selectedPorts.isEmpty {
-                        ModernButton(
-                            title: "Clear",
-                            icon: "xmark.circle",
-                            style: .secondary,
-                            action: { clearSelection() }
-                        )
+                        Button("Clear") {
+                            clearSelection()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.regular)
                         
-                        ModernButton(
-                            title: "Kill Selected",
-                            icon: "stop.circle.fill",
-                            style: .destructive,
-                            action: { killAllSelected() }
-                        )
+                        Button("Kill Selected") {
+                            killAllSelected()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.regular)
                     } else {
-                        ModernButton(
-                            title: "Kill All",
-                            icon: "stop.circle.fill",
-                            style: .destructive,
-                            action: { killAllMatching() }
-                        )
+                        Button("Kill All") {
+                            killAllMatching()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.regular)
                     }
                 }
-                .padding(12)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
                 .background(.regularMaterial, in: Rectangle())
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             
-            // Killing banner (appears when killing a process)
+            // Killing banner (appears when killing a process) - layered on top
             if shouldShowKillingBanner {
                 HStack {
                     ProgressView()
@@ -469,7 +467,7 @@ struct PortsPopoverView: View {
                     
                     Text("Killing...")
                         .foregroundColor(.secondary)
-                        .font(.caption)
+                        .font(.body)
                     
                     Spacer()
                 }
@@ -531,16 +529,10 @@ struct PortsPopoverView: View {
     }
     
     private func killAllSelected() {
-        let alert = NSAlert()
-        alert.messageText = "Kill All Selected Processes"
-        alert.informativeText = "Are you sure you want to kill all \(selectedPorts.count) selected processes?"
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Kill All")
-        alert.addButton(withTitle: "Cancel")
+        isKillingProcess = true
         
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            for port in selectedPortInfos {
+        DispatchQueue.global(qos: .userInitiated).async {
+            for port in self.selectedPortInfos {
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: "/bin/kill")
                 process.arguments = ["-9", port.pid]
@@ -548,6 +540,7 @@ struct PortsPopoverView: View {
                 do {
                     try process.run()
                     process.waitUntilExit()
+                    print("Successfully killed process \(port.process) with PID: \(port.pid)")
                 } catch {
                     // Continue with other processes even if one fails
                     print("Failed to kill process \(port.pid): \(error)")
@@ -555,24 +548,19 @@ struct PortsPopoverView: View {
             }
             
             // Clear selection and refresh after killing all
-            selectedPorts.removeAll()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                portMonitor.refreshPorts(showLoading: false)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.selectedPorts.removeAll()
+                self.isKillingProcess = false
+                self.portMonitor.refreshPorts(showLoading: false)
             }
         }
     }
     
     private func killAllMatching() {
-        let alert = NSAlert()
-        alert.messageText = "Kill All Matching Processes"
-        alert.informativeText = "Are you sure you want to kill all \(filteredPorts.count) matching processes?"
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Kill All")
-        alert.addButton(withTitle: "Cancel")
+        isKillingProcess = true
         
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            for port in filteredPorts {
+        DispatchQueue.global(qos: .userInitiated).async {
+            for port in self.filteredPorts {
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: "/bin/kill")
                 process.arguments = ["-9", port.pid]
@@ -580,6 +568,7 @@ struct PortsPopoverView: View {
                 do {
                     try process.run()
                     process.waitUntilExit()
+                    print("Successfully killed process \(port.process) with PID: \(port.pid)")
                 } catch {
                     // Continue with other processes even if one fails
                     print("Failed to kill process \(port.pid): \(error)")
@@ -587,23 +576,18 @@ struct PortsPopoverView: View {
             }
             
             // Clear search and refresh after killing all
-            searchText = ""
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                portMonitor.refreshPorts(showLoading: false)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.searchText = ""
+                self.isKillingProcess = false
+                self.portMonitor.refreshPorts(showLoading: false)
             }
         }
     }
     
     private func killProcessGroup(processName: String, ports: [PortInfo]) {
-        let alert = NSAlert()
-        alert.messageText = "Kill All \(processName) Processes"
-        alert.informativeText = "Are you sure you want to kill all \(ports.count) processes for \(processName)?"
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Kill All")
-        alert.addButton(withTitle: "Cancel")
+        isKillingProcess = true
         
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
+        DispatchQueue.global(qos: .userInitiated).async {
             for port in ports {
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: "/bin/kill")
@@ -612,6 +596,7 @@ struct PortsPopoverView: View {
                 do {
                     try process.run()
                     process.waitUntilExit()
+                    print("Successfully killed process \(port.process) with PID: \(port.pid)")
                 } catch {
                     // Continue with other processes even if one fails
                     print("Failed to kill process \(port.pid): \(error)")
@@ -619,11 +604,11 @@ struct PortsPopoverView: View {
             }
             
             // Clear any selected ports from this group and refresh
-            let groupPortIds = Set(ports.map(\.id))
-            selectedPorts.subtract(groupPortIds)
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                portMonitor.refreshPorts(showLoading: false)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                let groupPortIds = Set(ports.map(\.id))
+                self.selectedPorts.subtract(groupPortIds)
+                self.isKillingProcess = false
+                self.portMonitor.refreshPorts(showLoading: false)
             }
         }
     }
@@ -757,77 +742,6 @@ struct PortRowView: View {
     }
 }
 
-struct ModernButton: View {
-    let title: String
-    let icon: String
-    let style: ButtonStyle
-    let action: () -> Void
-    
-    @State private var isPressed = false
-    @State private var isHovered = false
-    
-    enum ButtonStyle {
-        case secondary
-        case destructive
-        
-        var colors: (background: Color, text: Color, shadow: Color) {
-            switch self {
-            case .secondary:
-                return (.gray.opacity(0.15), .primary, .gray.opacity(0.3))
-            case .destructive:
-                return (.red.opacity(0.15), .red, .red.opacity(0.4))
-            }
-        }
-    }
-    
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 11, weight: .medium))
-                Text(title)
-                    .font(.system(size: 11, weight: .medium))
-            }
-            .foregroundColor(style.colors.text)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(style.colors.background)
-            )
-            .scaleEffect(isPressed ? 0.96 : (isHovered ? 1.02 : 1.0))
-            .brightness(isHovered ? 0.05 : 0)
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) {
-                isHovered = hovering
-            }
-        }
-        .pressEvents(
-            onPress: {
-                withAnimation(.easeInOut(duration: 0.1)) {
-                    isPressed = true
-                }
-            },
-            onRelease: {
-                withAnimation(.easeInOut(duration: 0.1)) {
-                    isPressed = false
-                }
-            }
-        )
-    }
-}
-
-extension View {
-    func pressEvents(onPress: @escaping () -> Void, onRelease: @escaping () -> Void) -> some View {
-        self.simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in onPress() }
-                .onEnded { _ in onRelease() }
-        )
-    }
-}
 
 #Preview {
     PortsPopoverView()

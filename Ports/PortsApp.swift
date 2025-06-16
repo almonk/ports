@@ -66,7 +66,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         
         if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "network", accessibilityDescription: "Ports")
+            // Try to load custom menu bar icon first, fallback to system icon
+            if let customIcon = loadCustomMenuBarIcon() {
+                button.image = customIcon
+                print("Using custom menu bar icon")
+            } else {
+                button.image = NSImage(systemSymbolName: "network", accessibilityDescription: "Ports")
+                print("Using system network icon (custom icon not found)")
+            }
+            
             button.action = #selector(statusItemClicked(_:))
             button.target = self
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -83,6 +91,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // With .prohibited policy, this won't be called, but keeping for completeness
         togglePopover()
         return true
+    }
+    
+    private func loadCustomMenuBarIcon() -> NSImage? {
+        // Try to load custom menu bar icon from bundle
+        // Look for "MenuBarIcon" in the app bundle
+        if let image = NSImage(named: "MenuBarIcon") {
+            // Configure the image for menu bar use
+            image.isTemplate = true // This makes it adapt to light/dark mode
+            image.size = NSSize(width: 18, height: 18) // Standard menu bar icon size
+            return image
+        }
+        
+        // Alternative: try loading from specific file names
+        let iconNames = ["MenuBarIcon", "menubar-icon", "StatusIcon", "ports-icon"]
+        for iconName in iconNames {
+            if let image = NSImage(named: iconName) {
+                image.isTemplate = true
+                image.size = NSSize(width: 18, height: 18)
+                return image
+            }
+        }
+        
+        return nil
     }
     
     private func setupPopover() {
