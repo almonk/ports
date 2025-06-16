@@ -656,7 +656,6 @@ struct PortRowView: View {
                 HStack(spacing: 4) {
                     Text(port.process)
                         .font(.body)
-                        .lineLimit(1)
                 }
                 
                 Spacer()

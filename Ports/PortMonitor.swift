@@ -100,7 +100,7 @@ class PortMonitor: ObservableObject {
     private func fetchPorts() async -> [PortInfo] {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-        process.arguments = ["-i", "-P", "-n"]
+        process.arguments = ["-i", "-P", "-n", "+c0"]
         
         let pipe = Pipe()
         process.standardOutput = pipe
@@ -307,10 +307,8 @@ class PortMonitor: ObservableObject {
     }
     
     private func cleanProcessName(_ processName: String) -> String {
-        // Trim at literal \x20 string and everything after it
-        if let range = processName.range(of: "\\x20") {
-            return String(processName[..<range.lowerBound])
-        }
-        return processName
+        // lsof outputs process names with spaces escaped as \x20
+        // Replace \x20 with actual spaces and return the full name
+        return processName.replacingOccurrences(of: "\\x20", with: " ")
     }
 }
