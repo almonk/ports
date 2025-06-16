@@ -420,37 +420,38 @@ struct PortsPopoverView: View {
             // Bottom toolbar (appears when searching or selecting)
             if shouldShowToolbar {
                 HStack {
-                    if !selectedPorts.isEmpty {
-                        Text("\(selectedPorts.count) selected port\(selectedPorts.count == 1 ? "" : "s")")
-                            .foregroundColor(.secondary)
-                            .font(.body)
-                    } else {
-                        Text("\(filteredPorts.count) matching port\(filteredPorts.count == 1 ? "" : "s")")
-                            .foregroundColor(.secondary)
-                            .font(.body)
-                    }
+                    Text(!selectedPorts.isEmpty ? 
+                         "\(selectedPorts.count) selected port\(selectedPorts.count == 1 ? "" : "s")" :
+                         "\(filteredPorts.count) matching port\(filteredPorts.count == 1 ? "" : "s")")
+                        .foregroundColor(.secondary)
+                        .font(.body)
+                        .id("\(!selectedPorts.isEmpty)-\(selectedPorts.count)-\(filteredPorts.count)")
+                        .transition(.opacity)
                     
                     Spacer()
                     
-                    if !selectedPorts.isEmpty {
-                        Button("Clear") {
-                            clearSelection()
+                    HStack {
+                        if !selectedPorts.isEmpty {
+                            Button("Clear") {
+                                clearSelection()
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.regular)
+                            
+                            Button("Kill Selected") {
+                                killAllSelected()
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.regular)
+                        } else {
+                            Button("Kill All") {
+                                killAllMatching()
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.regular)
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.regular)
-                        
-                        Button("Kill Selected") {
-                            killAllSelected()
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.regular)
-                    } else {
-                        Button("Kill All") {
-                            killAllMatching()
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.regular)
                     }
+                    .animation(.spring(response: 0.4, dampingFraction: 0.8), value: selectedPorts.isEmpty)
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
